@@ -22,7 +22,7 @@ function isMutatingPath(path: string): boolean {
     path.startsWith("/build/") ||
     path.startsWith("/sim/") ||
     path.endsWith("/set") ||
-    ["/game/save", "/city/tiles/buy", "/transit/stops/place", "/transit/lines/create", "/transit/lines/delete"].includes(path)
+    ["/game/save", "/city/tiles/buy", "/city/devtree/buy", "/transit/stops/place", "/transit/lines/create", "/transit/lines/delete"].includes(path)
   );
 }
 
@@ -341,6 +341,78 @@ server.registerTool(
   },
 );
 
+server.registerTool(
+  "cs2_devtree",
+  {
+    title: "Development tree",
+    description:
+      "Development points and the development tree (Progression panel). Milestones award development points; " +
+      "spending them on tree nodes unlocks buildings, zones, roads and transit (e.g. high-density zoning, hospital, " +
+      "bus lines). Lists unpurchased nodes with cost, required nodes, canBuyNow and what each unlocks.",
+    inputSchema: {
+      service: z.string().optional().describe("Only nodes whose service name contains this text"),
+      all: z.boolean().optional().describe("Also list already purchased nodes"),
+    },
+  },
+  async ({ service, all }) => {
+    const params = new URLSearchParams();
+    if (service) params.set("service", service);
+    if (all) params.set("all", "true");
+    try {
+      return jsonResult(await bridgeJson(`/city/devtree?${params.toString()}`));
+    } catch (err) {
+      return errorResult(err);
+    }
+  },
+);
+
+server.registerTool(
+  "cs2_devtree_buy",
+  {
+    title: "Buy a development tree node",
+    description:
+      "Spend development points on one node (name from cs2_devtree), exactly like clicking Unlock in the " +
+      "Progression panel. Fails with the reason if the service is not unlocked, a required node is missing or points are short.",
+    inputSchema: {
+      node: z.string().describe("Node name from cs2_devtree"),
+    },
+  },
+  async ({ node }) => {
+    try {
+      return jsonResult(await bridgeJson(`/city/devtree/buy?node=${encodeURIComponent(node)}`));
+    } catch (err) {
+      return errorResult(err);
+    }
+  },
+);
+
+server.registerTool(
+  "cs2_unlock_requirements",
+  {
+    title: "Why is something locked",
+    description:
+      "For locked prefabs (buildings, zones, roads, transit lines...) whose name contains `name`: every unlock " +
+      "requirement, whether it is met, and what it asks for (milestone, development tree node, an object built " +
+      "N times with current progress, population...). Empty name lists everything locked.",
+    inputSchema: {
+      name: z.string().optional().describe("Part of the prefab name, e.g. 'Bus Line', 'Residential High', 'Hospital'"),
+      all: z.boolean().optional().describe("Also include unlocked prefabs"),
+      limit: z.number().int().optional().describe("Max prefabs (default 15)"),
+    },
+  },
+  async ({ name, all, limit }) => {
+    const params = new URLSearchParams();
+    if (name) params.set("name", name);
+    if (all) params.set("all", "true");
+    if (limit) params.set("limit", String(limit));
+    try {
+      return jsonResult(await bridgeJson(`/prefab/requirements?${params.toString()}`));
+    } catch (err) {
+      return errorResult(err);
+    }
+  },
+);
+
 registerJsonTool(
   "cs2_service_budgets",
   "Get service budgets",
@@ -439,7 +511,10 @@ server.registerTool(
       "Build any network segment between two world coordinates (terrain-following): roads, train tracks, " +
       "pedestrian paths, power lines, pipes 鈥?any prefab from cs2_find_prefabs category 'road' or 'net'. " +
       "Straight by default; pass cx/cz for a curved segment through that control point. Length 8-1500m. " +
-      "Endpoints on existing nodes connect to them. Costs city money; fails with an explanation if blocked.",
+      "Endpoints on existing nodes connect to them. Costs city money; fails with an explanation if blocked. " +
+      "Crossing water: one segment whose two ends stand on dry land (waterDepths 0 in cs2_terrain) becomes a " +
+      "bridge with pillars automatically; an end in shallow water fails. bridge=true keeps the span straight " +
+      "between the two ends (valleys, low banks) instead of following the ground.",
     inputSchema: {
       prefab: z.string().describe("Exact prefab name from cs2_find_prefabs (category road or net)"),
       x1: z.number().describe("Start X (meters)"),
@@ -450,10 +525,11 @@ server.registerTool(
       cz: z.number().optional().describe("Curve control point Z"),
       e1: z.number().optional().describe("Elevation at start in meters (bridges/elevated; negative = tunnel-ish)"),
       e2: z.number().optional().describe("Elevation at end in meters"),
+      bridge: z.boolean().optional().describe("Straight span between the two ends, ignoring the ground in between"),
       force: z.boolean().optional().describe("Build even if the prefab is milestone-locked"),
     },
   },
-  async ({ prefab, x1, z1, x2, z2, cx, cz, e1, e2, force }) => {
+  async ({ prefab, x1, z1, x2, z2, cx, cz, e1, e2, bridge, force }) => {
     const params = new URLSearchParams({
       prefab,
       x1: String(x1),
@@ -465,6 +541,7 @@ server.registerTool(
     if (cz !== undefined) params.set("cz", String(cz));
     if (e1 !== undefined) params.set("e1", String(e1));
     if (e2 !== undefined) params.set("e2", String(e2));
+    if (bridge) params.set("bridge", "true");
     if (force) params.set("force", "true");
     try {
       return jsonResult(await bridgeJson(`/build/road?${params.toString()}`, 15_000));
@@ -1335,7 +1412,10 @@ server.registerTool(
       "otherwise splits the nearest compatible segment at that point (a track never joins a road). Ends with " +
       "nothing in range start freely on the terrain. Straight, or curved through cx/cz (needed where tracks must " +
       "leave a junction smoothly). Use for new road links and ramps, and for track spurs to station tracks (find " +
-      "those with cs2_road_graph allNets). Validated by the game; costs money like a player build.",
+      "those with cs2_road_graph allNets). Validated by the game; costs money like a player build. " +
+      "bridge=true: a bridge span between the two ends at the height of the junctions they join, ignoring the " +
+      "ground in between and arching to stay 6 m above any water - one call from a dry junction or free point on one " +
+      "bank to one on the other crosses a river. An end on a flooded junction (in water) cannot be used.",
     inputSchema: {
       prefab: z.string().describe("Exact network prefab name (cs2_find_prefabs category road or net)"),
       x1: z.number().describe("Start X"),
@@ -1347,10 +1427,11 @@ server.registerTool(
       snap: z.number().min(0).max(50).optional().describe("Snap distance in meters (default 8; 0 = never snap)"),
       e1: z.number().optional().describe("Elevation of a free (unsnapped) start in meters: >0 bridge/flyover, <0 tunnel"),
       e2: z.number().optional().describe("Elevation of a free (unsnapped) end in meters"),
+      bridge: z.boolean().optional().describe("Straight bridge span between the ends (rivers, valleys)"),
       force: z.boolean().optional().describe("Build even if the prefab is milestone-locked"),
     },
   },
-  async ({ prefab, x1, z1, x2, z2, cx, cz, snap, e1, e2, force }) => {
+  async ({ prefab, x1, z1, x2, z2, cx, cz, snap, e1, e2, bridge, force }) => {
     const params = new URLSearchParams({
       prefab,
       x1: String(x1),
@@ -1363,6 +1444,7 @@ server.registerTool(
     if (snap !== undefined) params.set("snap", String(snap));
     if (e1 !== undefined) params.set("e1", String(e1));
     if (e2 !== undefined) params.set("e2", String(e2));
+    if (bridge) params.set("bridge", "true");
     if (force) params.set("force", "true");
     try {
       return jsonResult(await bridgeJson(`/build/road/connect?${bridgeQueryString(params)}`, 15_000));

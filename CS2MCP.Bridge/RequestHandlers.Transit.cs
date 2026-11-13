@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Colossal.Mathematics;
@@ -989,17 +989,41 @@ namespace CS2MCP
                 error = BridgeResponse.Error(404, $"unknown {typeName} stop prefab '{wanted}'; available: {string.Join(", ", available)}");
                 return false;
             }
-            foreach (KeyValuePair<Entity, PrefabBase> candidate in candidates)
+            // Default pick: a real stop in the city's theme. "Placeholder" prefabs are variant
+            // pickers for asset authors; placed directly they are not counted as built stops, so
+            // the "Bus Stop Built Req" that unlocks bus lines never progresses.
+            string themePrefix = "NA_";
+            try
             {
-                if (!IsLocked(candidate.Key))
+                Entity theme = World.GetOrCreateSystemManaged<Game.City.CityConfigurationSystem>().defaultTheme;
+                string themeName = PrefabName(prefabSystem, theme) ?? "";
+                if (themeName.IndexOf("Europe", StringComparison.OrdinalIgnoreCase) >= 0 || themeName.StartsWith("EU", StringComparison.OrdinalIgnoreCase))
                 {
-                    prefabEntity = candidate.Key;
-                    prefab = candidate.Value;
-                    return true;
+                    themePrefix = "EU_";
                 }
             }
-            prefabEntity = candidates[0].Key;
-            prefab = candidates[0].Value;
+            catch (Exception)
+            {
+            }
+            int Rank(KeyValuePair<Entity, PrefabBase> c)
+            {
+                string n = c.Value.name;
+                int r = IsLocked(c.Key) ? 100 : 0;
+                if (n.IndexOf("Placeholder", StringComparison.OrdinalIgnoreCase) >= 0) r += 50;
+                if (n.IndexOf("Bicycle", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("Integrated", StringComparison.OrdinalIgnoreCase) >= 0) r += 20;
+                if ((n.StartsWith("NA_") || n.StartsWith("EU_")) && !n.StartsWith(themePrefix)) r += 10;
+                return r;
+            }
+            KeyValuePair<Entity, PrefabBase> best = candidates[0];
+            foreach (KeyValuePair<Entity, PrefabBase> candidate in candidates)
+            {
+                if (Rank(candidate) < Rank(best))
+                {
+                    best = candidate;
+                }
+            }
+            prefabEntity = best.Key;
+            prefab = best.Value;
             return true;
         }
 

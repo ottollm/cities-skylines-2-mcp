@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Colossal.Mathematics;
 using Game.Common;
@@ -97,12 +97,56 @@ namespace CS2MCP
             bezier.c.y += math.lerp(start.Elevation, end.Elevation, 2f / 3f);
             bezier.a = start.Position;
             bezier.d = end.Position;
+            float2? spanElevation = null;
+            if (request.TryGetBool("bridge", out bool bridgeSpan) && bridgeSpan)
+            {
+                // Bridge span: straight line between the two ends (at the height of the junctions they
+                // join), ignoring the ground in between - crosses rivers and valleys in one piece.
+                bezier.b.y = math.lerp(bezier.a.y, bezier.d.y, 1f / 3f);
+                bezier.c.y = math.lerp(bezier.a.y, bezier.d.y, 2f / 3f);
+                // Keep the deck above the water: where the straight line would dip under the water
+                // surface (+ clearance), raise the two middle control points into a hump. With the
+                // ends fixed, y(t) = a(1-t)^3 + d t^3 + 3H t(1-t) when b.y = c.y = H.
+                WaterSurfaceData<SurfaceWater> water = World.GetOrCreateSystemManaged<WaterSystem>().GetSurfaceData(out Unity.Jobs.JobHandle waterDeps);
+                waterDeps.Complete();
+                const float kClearance = 6f;
+                float need = float.MinValue;
+                for (int i = 1; i < 48; i++)
+                {
+                    float t = i / 48f;
+                    float3 pos = math.lerp(bezier.a, bezier.d, t);
+                    float depth = WaterUtils.SampleDepth(ref water, pos);
+                    if (depth <= 0.05f)
+                    {
+                        continue;
+                    }
+                    float required = TerrainUtils.SampleHeight(ref heightData, pos) + depth + kClearance;
+                    float u = 1f - t;
+                    float h = (required - bezier.a.y * u * u * u - bezier.d.y * t * t * t) / (3f * t * u);
+                    need = math.max(need, h);
+                }
+                if (need > float.MinValue)
+                {
+                    bezier.b.y = math.max(bezier.b.y, need);
+                    bezier.c.y = math.max(bezier.c.y, need);
+                }
+                float lo = 0f, hi = 0f;
+                for (int i = 1; i < 32; i++)
+                {
+                    float3 pos = MathUtils.Position(bezier, i / 32f);
+                    float above = pos.y - TerrainUtils.SampleHeight(ref heightData, pos);
+                    lo = math.min(lo, above);
+                    hi = math.max(hi, above);
+                }
+                spanElevation = new float2(lo, hi);
+            }
 
             if (TransitToolsBusy(out error))
             {
                 return error;
             }
             BridgeRoadToolSystem tool = World.GetOrCreateSystemManaged<BridgeRoadToolSystem>();
+            tool.PendingSpanElevation = spanElevation;
             if (!tool.TryQueueBuild(prefabEntity, prefab, start, end, bezier, request))
             {
                 return BridgeResponse.Error(409, "another road operation is in progress, retry shortly");

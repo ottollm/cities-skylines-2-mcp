@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Colossal.Mathematics;
 using Game;
 using Game.City;
@@ -58,6 +58,7 @@ namespace CS2MCP
         private CompositionFlags m_PendingUpgradeFlags;
         private float3[] m_PendingAreaNodes;
         private float2 m_PendingElevations;
+        private bool m_PendingBridge;
         private quaternion m_PendingRotation;
         private BridgeRequest m_PendingRequest;
         private ToolBaseSystem m_PreviousTool;
@@ -118,6 +119,7 @@ namespace CS2MCP
             m_PendingMid = mid;
             m_PendingHasMid = hasMid;
             m_PendingElevations = elevations;
+            m_PendingBridge = request.TryGetBool("bridge", out bool bridgeSpan) && bridgeSpan;
             m_PendingRotation = quaternion.identity;
             m_PendingRequest = request;
             Activate();
@@ -533,6 +535,13 @@ namespace CS2MCP
 
             float e1 = m_PendingElevations.x;
             float e2 = m_PendingElevations.y;
+            if (m_PendingBridge)
+            {
+                // Bridge span: ends on the terrain, the middle on the straight line between them,
+                // so the road crosses a river/valley instead of following the ground into it.
+                adjusted.b.y = math.lerp(adjusted.a.y, adjusted.d.y, 1f / 3f);
+                adjusted.c.y = math.lerp(adjusted.a.y, adjusted.d.y, 2f / 3f);
+            }
             if (e1 != 0f || e2 != 0f)
             {
                 // Lift the terrain-following curve by linearly interpolated
@@ -547,6 +556,19 @@ namespace CS2MCP
             NetCourse course = default;
             course.m_Curve = adjusted;
             course.m_Elevation = new float2(math.min(e1, e2), math.max(e1, e2));
+            if (m_PendingBridge)
+            {
+                // Height above ground along the span decides where the pipeline puts bridge pieces and pillars.
+                float lo = math.min(e1, e2), hi = math.max(e1, e2);
+                for (int i = 0; i <= 32; i++)
+                {
+                    float3 pos = MathUtils.Position(adjusted, i / 32f);
+                    float h = pos.y - TerrainUtils.SampleHeight(ref terrainHeight, pos);
+                    lo = math.min(lo, h);
+                    hi = math.max(hi, h);
+                }
+                course.m_Elevation = new float2(lo, hi);
+            }
             course.m_StartPosition.m_Position = course.m_Curve.a;
             course.m_StartPosition.m_Rotation = NetUtils.GetNodeRotation(MathUtils.StartTangent(course.m_Curve));
             course.m_StartPosition.m_CourseDelta = 0f;

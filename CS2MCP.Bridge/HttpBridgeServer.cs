@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
@@ -183,6 +183,7 @@ namespace CS2MCP
                 || path.EndsWith("/set", StringComparison.Ordinal)
                 || path == "/game/save"
                 || path == "/city/tiles/buy"
+                || path == "/city/devtree/buy"
                 || path == "/transit/stops/place"
                 || path == "/transit/lines/create"
                 || path == "/transit/lines/delete";

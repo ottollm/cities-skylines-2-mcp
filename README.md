@@ -4,6 +4,18 @@
 
 Give Claude (or any MCP client) **full control** over a running Cities: Skylines II game: read city data, drive the camera and take screenshots, build roads and buildings, paint zones, manage finances and policies, and control simulation time.
 
+
+> **This is a fork** of [LancerComet/cities-skylines-2-mcp](https://github.com/LancerComet/cities-skylines-2-mcp) (Apache-2.0), all credit for the bridge and the MCP server goes there.
+> It is the version Claude Fable 5.2 played through when it ran a city from an empty map to 90,761 residents on its own.
+> The changes below were added mid-game, whenever the model hit a wall. Everything else is the original. The brief, the watcher scripts and the model's full diary are in [`mayor/`](mayor/).
+>
+> **Changes in this fork (2026-11)**
+> - **Development tree:** `GET /city/devtree` lists nodes with cost, requirements and what each unlocks; `POST /city/devtree/buy?node=` spends development points (same call as the Progression panel). New file `RequestHandlers.DevTree.cs`. MCP tools `cs2_devtree`, `cs2_devtree_buy`.
+> - **Unlock diagnostics:** `GET /prefab/requirements?name=` explains why a prefab is locked and which condition is missing (built objects, population, zones, dev-tree node...). New file `RequestHandlers.Unlocks.cs`. MCP tool `cs2_unlock_requirements`.
+> - **Bridges over water:** `bridge=true` on `/build/road` and `/build/road/connect` builds a span that arches at least 6 m above the water surface and widens the course elevation so the game places bridge pieces and pillars, instead of a road that follows the riverbed. (`BridgeToolSystem.cs`, `BridgeRoadToolSystem.cs`, `RequestHandlers.Roads.cs`)
+> - **Transit stops:** the default stop prefab was a non-functional placeholder (bus lines never unlocked); the resolver now prefers the real, unlocked stop for the city theme. (`RequestHandlers.Transit.cs`)
+> - Routing and the mutating-route list updated for the new endpoints (`RequestHandlers.cs`, `HttpBridgeServer.cs`, `mcp-server/src/index.ts`).
+
 ## Architecture
 
 ```

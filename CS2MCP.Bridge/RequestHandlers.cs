@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Game;
 using Game.City;
@@ -73,6 +73,12 @@ namespace CS2MCP
                     return GetPolicies();
                 case "/city/policies/set":
                     return HandleSetPolicy(request);
+                case "/city/devtree":
+                    return GetDevTree(request);
+                case "/city/devtree/buy":
+                    return BuyDevTreeNode(request);
+                case "/prefab/requirements":
+                    return GetUnlockRequirements(request);
                 case "/city/service-budgets":
                     return GetServiceBudgets();
                 case "/city/service-budgets/set":

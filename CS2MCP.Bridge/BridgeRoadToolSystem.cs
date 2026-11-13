@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Colossal.Mathematics;
 using Game.Common;
@@ -58,6 +58,9 @@ namespace CS2MCP
         private BuildEnd m_BuildStart;
         private BuildEnd m_BuildEnd;
         private Bezier4x3 m_BuildCurve;
+        /// <summary>Set by the handler for bridge=true: height-above-ground range of the span (x=min, y=max).</summary>
+        public float2? PendingSpanElevation;
+        private float2? m_BuildSpanElevation;
         private Entity[] m_PendingEdges;
         private float3[] m_PendingMidpoints;
         private bool m_PendingInvert;
@@ -144,6 +147,8 @@ namespace CS2MCP
             m_BuildStart = start;
             m_BuildEnd = end;
             m_BuildCurve = curve;
+            m_BuildSpanElevation = PendingSpanElevation;
+            PendingSpanElevation = null;
             m_PendingEdges = null;
             m_PendingMidpoints = null;
             m_PendingPrefabEntity = prefabEntity;
@@ -310,6 +315,12 @@ namespace CS2MCP
             course.m_FixedIndex = -1;
             course.m_Elevation = new float2(math.min(m_BuildStart.Elevation, m_BuildEnd.Elevation),
                 math.max(m_BuildStart.Elevation, m_BuildEnd.Elevation));
+            if (m_BuildSpanElevation.HasValue)
+            {
+                // Bridge span: the pipeline places bridge pieces and pillars where the course is above ground.
+                course.m_Elevation = new float2(math.min(course.m_Elevation.x, m_BuildSpanElevation.Value.x),
+                    math.max(course.m_Elevation.y, m_BuildSpanElevation.Value.y));
+            }
             course.m_StartPosition = ToCoursePos(m_BuildStart, 0f);
             course.m_StartPosition.m_Flags = CoursePosFlags.IsFirst | CoursePosFlags.IsLeft | CoursePosFlags.IsRight;
             course.m_EndPosition = ToCoursePos(m_BuildEnd, 1f);
